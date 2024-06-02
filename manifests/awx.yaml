@@ -1,0 +1,16 @@
+---
+apiVersion: awx.ansible.com/v1beta1
+kind: AWX
+metadata:
+  name: awx
+  namespace: awx
+spec:
+  admin_user: foo
+  admin_password_secret: awx-admin-password
+  no_log: false
+  ingress_type: Ingress
+  ingress_hosts:
+    - hostname: "awx.your.domain"
+      tls_secret: awx-tls
+  ingress_annotations: |
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"

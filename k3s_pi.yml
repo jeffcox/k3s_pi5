@@ -1,0 +1,84 @@
+---
+
+- name: "Install k3s"
+  hosts: pi5
+  vars:
+    pi_user: USER
+    local_user: USER
+    pi_ip_address: "{{ ansible_host }}"
+  tasks:
+    - name: Apply netplan
+      ansible.builtin.template:
+        src: k3s_pi_netplan.j2
+        dest: /etc/netplan/60-ansible-netplan.yaml
+        owner: root
+        group: root
+        mode: "600"
+      become: true
+
+    # - name: "Install nfs-common"
+    #   ansible.builtin.package:
+    #     name: nfs-common
+    #   become: true
+
+    - name: "Download k3s install script"
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: "/home/{{ pi_user }}/k3s.sh"
+        mode: "744"
+
+    - name: "Manage k3s"
+      block:
+        - name: "Check if k3s is healthy"
+          ansible.builtin.service:
+            name: "k3s.service"
+            state: started
+
+        - name: "Let's uninstall and reinstall anyway"
+          when:
+            - reinstall_k3s is defined
+            - reinstall_k3s | bool
+          ansible.builtin.fail:
+            msg: "failing, per request"
+
+      rescue:
+        - name: "Check for the k3s-uninstall.sh script"
+          ansible.builtin.stat:
+            path: /usr/local/bin/k3s-uninstall.sh
+          register: k3s_uninstall_stat
+
+        - name: "Uninstall k3s"
+          when: 
+            - k3s_uninstall_stat['stat']['exists']
+            - k3s_uninstall_stat['stat']['executable']
+          ansible.builtin.shell:
+            cmd: "k3s-uninstall.sh"
+
+        - name: "Run the k3s install script"
+          ansible.builtin.shell:
+            cmd: "/home/{{ pi_user }}/k3s.sh --disable traefik --disable servicelb"
+
+    - name: "Fetch k3s.yaml"
+      ansible.builtin.fetch:
+        src: "/etc/rancher/k3s/k3s.yaml"
+        dest: "/Users/{{ local_user }}/.kube/config"
+        flat: true
+      become: true
+
+    - name: "Fix the reference to localhost"
+      delegate_to: localhost
+      ansible.builtin.lineinfile:
+        path: "/Users/{{ local_user }}/.kube/config"
+        regexp: '^.+server: https://127\.0\.0\.1:6443'
+        line: "    server: https://{{ pi_ip_address }}:6443"
+        mode: "600"
+    
+    - name: "Check status"
+      delegate_to: localhost
+      ansible.builtin.command:
+        cmd: "kubectl get pods -A"
+      register: kbg_pods
+    
+    - name: "Show kbg pods -A"
+      ansible.builtin.debug:
+        msg: "{{ kbg_pods }}"
